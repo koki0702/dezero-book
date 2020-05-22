@@ -1,0 +1,282 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "id": "view-in-github"
+   },
+   "source": [
+    "<a href=\"https://colab.research.google.com/github/koki0702/zerobook3/blob/master/notebook/ja/step08.ipynb\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "id": "qD_v5BgmSNeK"
+   },
+   "source": [
+    "## 前ステップまでに実装したコード"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "colab": {},
+    "colab_type": "code",
+    "collapsed": true,
+    "id": "1ItduEGlSNeK"
+   },
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "\n",
+    "\n",
+    "class Variable:\n",
+    "    def __init__(self, data):\n",
+    "        self.data = data\n",
+    "        self.grad = None\n",
+    "        self.creator = None\n",
+    "\n",
+    "    def set_creator(self, func):\n",
+    "        self.creator = func\n",
+    "\n",
+    "    def backward(self):\n",
+    "        f = self.creator\n",
+    "        if f is not None:\n",
+    "            x = f.input\n",
+    "            x.grad = f.backward(self.grad)\n",
+    "            x.backward()\n",
+    "\n",
+    "\n",
+    "class Function:\n",
+    "    def __call__(self, input):\n",
+    "        x = input.data\n",
+    "        y = self.forward(x)\n",
+    "        output = Variable(y)\n",
+    "        output.set_creator(self)\n",
+    "        self.input = input\n",
+    "        self.output = output\n",
+    "        return output\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        raise NotImplementedError()\n",
+    "\n",
+    "    def backward(self, gy):\n",
+    "        raise NotImplementedError()\n",
+    "\n",
+    "\n",
+    "class Square(Function):\n",
+    "    def forward(self, x):\n",
+    "        y = x ** 2\n",
+    "        return y\n",
+    "\n",
+    "    def backward(self, gy):\n",
+    "        x = self.input.data\n",
+    "        gx = 2 * x * gy\n",
+    "        return gx\n",
+    "\n",
+    "\n",
+    "class Exp(Function):\n",
+    "    def forward(self, x):\n",
+    "        y = np.exp(x)\n",
+    "        return y\n",
+    "\n",
+    "    def backward(self, gy):\n",
+    "        x = self.input.data\n",
+    "        gx = np.exp(x) * gy\n",
+    "        return gx"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "id": "b64KOJJASNeO"
+   },
+   "source": [
+    "***"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "id": "xP5kwa-3-9Ff"
+   },
+   "source": [
+    "# ステップ8 再帰からループへ\n",
+    "\n",
+    "前ステップで私たちは、`Variable`クラスに`backward`メソッドを追加しました。ここでは処理効率の改善と今後の拡張を見据えて、`backward`メソッドを別の実装方式へと変更します。"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 8.1 現時点のVariableクラス\n",
+    "\n",
+    "再掲になりますが、私たちは`Variable`クラスの`backward`メソッドを次のように実装しました。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "class Variable:\n",
+    "    def __init__(self, data):\n",
+    "        self.data = data\n",
+    "        self.grad = None\n",
+    "        self.creator = None\n",
+    "\n",
+    "    def set_creator(self, func):\n",
+    "        self.creator = func\n",
+    "\n",
+    "    def backward(self):\n",
+    "        f = self.creator\n",
+    "        if f is not None:\n",
+    "            x = f.input\n",
+    "            x.grad = f.backward(self.grad)\n",
+    "            x.backward()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "ここで注目したいのは、`backward`メソッドの中で、（入力側へ）1つ前の変数の`backward`メソッドが呼ばれている点です。これによって、「`backward`メソッドの中で`backward`メソッドが呼ばれ、その呼ばれた先の`backward`メソッドでまた`backward`メソッドが呼ばれ、...」という処理が続きます（関数`self.creator`が`None`になる変数が見つかるまで続きます）。これは再帰的な構造です。\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 8.2 ループを使った実装\n",
+    "\n",
+    "ここでは、上の「再帰を使った実装」を「ループを使った実装」に書き換えます。そのコードを示すと、次のようになります。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "class Variable:\n",
+    "    def __init__(self, data):\n",
+    "        self.data = data\n",
+    "        self.grad = None\n",
+    "        self.creator = None\n",
+    "\n",
+    "    def set_creator(self, func):\n",
+    "        self.creator = func\n",
+    "\n",
+    "    def backward(self):\n",
+    "        funcs = [self.creator]\n",
+    "        while funcs:\n",
+    "            f = funcs.pop()  # 関数を取得\n",
+    "            x, y = f.input, f.output  # 関数の入出力を取得\n",
+    "            x.grad = f.backward(y.grad)  # backwardメソッドを呼ぶ\n",
+    "\n",
+    "            if x.creator is not None:\n",
+    "                funcs.append(x.creator)  # 1つ前の関数をリストに追加"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "これがループを使った実装です。重要な点は、`funcs`というリストに処理すべき関数を順に追加していくことです。`while`ループの中では、`funcs.pop()`によって処理すべき関数が`f`として取り出され、その関数`f`の`backward`メソッドが呼ばれます。このとき、`f.input`と`f.output`によって、関数`f`の入出力の変数を取得することで、`f.backward()`の引数と戻り値が正しく設定されます。\n",
+    "\n",
+    "<br><div class=\"alert alert-info\">\n",
+    "<b>【ノート】</b>リストの<code>pop</code>メソッドは、リストの末尾が削除され、その要素が取得されます。たとえば、<code>funcs = [1, 2, 3]</code>のとき<code>x = funcs.pop()</code>とすれば、<code>3</code>が取り出され、<code>funcs</code>は<code>[1, 2]</code>となります。\n",
+    "</div>"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 8.3 動作確認\n",
+    "\n",
+    "それでは、上の`Variable`クラスを使って、実際に微分を求めてみましょう。ここでも前ステップと同じコードを実行してみます。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "3.297442541400256\n"
+     ]
+    }
+   ],
+   "source": [
+    "A = Square()\n",
+    "B = Exp()\n",
+    "C = Square()\n",
+    "\n",
+    "x = Variable(np.array(0.5))\n",
+    "a = A(x)\n",
+    "b = B(a)\n",
+    "y = C(b)\n",
+    "\n",
+    "# 逆伝播\n",
+    "y.grad = np.array(1.0)\n",
+    "y.backward()\n",
+    "print(x.grad)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "結果は前と同じです。これで、「再帰」から「ループ」へと実装方式の切り替えができました。この「ループ」による実装の恩恵は、「ステップ15」で分かります。そこでは複雑な計算グラフを扱いますが、今の「ループ」による実装であれば、スムーズに拡張できます。また「ループ」の方が少しだけ処理効率も良くなります。\n",
+    "\n",
+    "<br><div class=\"alert alert-warning\">\n",
+    "<b>【注意】</b>再帰は、関数を再帰的に呼ぶたびに途中の結果をメモリに残しながら（スタックに積みながら）処理を続けます。そのため、一般的には、ループ方式の方が処理効率が良くなります。ただし、現代のコンピュータであれば多少のメモリ使用量は問題になりません。また「末尾再帰」という処理によって、再帰をループと同じように実行できる場合があります。\n",
+    "</div><br>\n",
+    "\n",
+    "以上で、バックプロパゲーションの実装のベースは完成です。これから、さらに複雑な計算が行えるように、現状のDeZeroを拡張していきます。次のステップでは、DeZeroの「使いやすさ」の点について改善したいと思います。"
+   ]
+  }
+ ],
+ "metadata": {
+  "colab": {
+   "collapsed_sections": [],
+   "name": "step08.ipynb",
+   "provenance": []
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 1
+}
