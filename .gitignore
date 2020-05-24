@@ -1,3 +1,11 @@
 .DS_Store
-notebook/ja/.ipynb_checkpoints/
-notebook/en/.ipynb_checkpoints/
+ja/.ipynb_checkpoints/
+en/.ipynb_checkpoints/
+
+_build/*
+Makefile
+build.py
+conf.py
+index.rst
+make.bat
+re2md.py
